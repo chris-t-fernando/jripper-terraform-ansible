@@ -1,0 +1,51 @@
+---
+- name: Install jripper stuff
+# hacky as hell - unless I write a sed command in main.tf to set hosts: in this yaml
+# file to the IP address of the newly created EC2 instance, I need to set
+# this to Hosts: all and then use the limit block below to specify execution
+# as a way of making sure an admin doesn't deploy this to the entire fleet
+# on second thought
+# the sed option is probably better for this use case....
+  hosts: "all"
+  gather_facts: no
+  tasks:
+    - name: checking limit arg
+      fail:
+        msg: "you must use -l or --limit - when you really want to use all hosts, use -l 'all'"
+      when: ansible_limit is not defined
+      run_once: true
+    - name: apt update
+      command: "sudo apt-get update"
+      become: yes
+    - name: apt install
+      become: yes
+      apt:
+        name:
+          - awscli
+          - php
+          - php-gd
+          - eyed3
+          - apache2
+          - ffmpeg
+          - sox
+          - streamripper
+          - python
+          - jq
+          - libsox-fmt-mp3
+
+        state: present
+        update_cache: yes
+    - name: mkdir /triplej
+      become: yes
+      ansible.builtin.file:
+        path: /triplej
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+    - name: Clone a repo with separate git directory
+      ansible.builtin.git:
+        repo: https://github.com/chris-t-fernando/jripper.git
+        dest: /triplej
+        separate_git_dir: /home/ubuntu/jripper.git
+     

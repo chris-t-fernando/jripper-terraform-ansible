@@ -19,7 +19,7 @@ resource "aws_instance" "jripper" {
 	}
 	
 	provisioner "remote-exec" {
-		inline = ["sudo apt-get install python --yes"]
+		inline = ["curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py",  "sudo python3 get-pip.py --user", "sudo python3 -m pip install --user ansible"]
 
 		connection {
 			type        = "ssh"
@@ -29,6 +29,7 @@ resource "aws_instance" "jripper" {
 			
 		}
 	}
+
 	
 	provisioner "local-exec" {
 		command = "ansible-playbook -u ubuntu -i '${self.public_ip},' --private-key ${var.ssh_key_private} jripper.yml" 
