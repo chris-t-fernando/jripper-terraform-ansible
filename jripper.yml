@@ -1,23 +1,16 @@
 ---
-- name: Install jripper stuff
+- name: Ensure jripper stuff is installed
 # hacky as hell - unless I write a sed command in main.tf to set hosts: in this yaml
 # file to the IP address of the newly created EC2 instance, I need to set
 # this to Hosts: all and then use the limit block below to specify execution
 # as a way of making sure an admin doesn't deploy this to the entire fleet
 # on second thought
 # the sed option is probably better for this use case....
-  hosts: "all"
+  hosts: 34.211.28.128
   gather_facts: no
   tasks:
-    - name: checking limit arg
-      fail:
-        msg: "you must use -l or --limit - when you really want to use all hosts, use -l 'all'"
-      when: ansible_limit is not defined
-      run_once: true
-    - name: apt update
-      command: "sudo apt-get update"
-      become: yes
-    - name: apt install
+    # apt cache update and then get packages
+    - name: ensure jripper packages are installed via apt
       become: yes
       apt:
         name:
@@ -29,13 +22,48 @@
           - ffmpeg
           - sox
           - streamripper
-          - python
           - jq
           - libsox-fmt-mp3
-
+          - python2
         state: present
         update_cache: yes
-    - name: mkdir /triplej
+    
+    # DO PIP STUFF    
+    # need python 2.7 because that's what my app was written in - todo: lifecycle the script to python3
+    - name: pip - ensure latest get-pip.py for python 2.7
+      ansible.builtin.uri:
+        url: https://bootstrap.pypa.io/pip/2.7/get-pip.py
+        dest: get-pip.py
+        # 304 because it can be cached and Ansible throws an error for 304 unless you tell it otherwise.. makes sense through a certain light, if you squint.......
+        status_code: [ "200", "304" ]
+      #command: "curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py"
+    - name: pip - run get-pip.py
+      command: "python2 get-pip.py"
+    - name: pip - install tweepy
+      ansible.builtin.pip:
+        executable: "pip2"
+        name: tweepy
+    - name: pip - install boto3
+      ansible.builtin.pip:
+        executable: "pip2"
+        name: boto3
+    
+    # DO PHP CONFIG
+    - name: ensure PHP CLI config allows short tags
+      command: "sudo sed -i 's/short_open_tag = Off/short_open_tag = On/g' /etc/php/7.4/cli/php.ini"
+      become: yes
+    - name: ensure PHP apache config allows short tags
+      command: "sudo sed -i 's/short_open_tag = Off/short_open_tag = On/g' /etc/php/7.4/apache2/php.ini"
+      become: yes
+    - name: ensure PHP CLI config shows errors
+      command: "sudo sed -i 's/display_errors = Off/display_errors = On);/g' /etc/php/7.4/cli/php.ini"
+      become: yes
+    - name: ensure PHP apache config shows errors
+      command: "sudo sed -i 's/display_errors = Off/display_errors = On);/g' /etc/php/7.4/apache2/php.ini"
+      become: yes
+    
+    # CREATE FOLDERS todo: add folders into git repo so that this isn't required
+    - name: ensure /triplej folder exists
       become: yes
       ansible.builtin.file:
         path: /triplej
@@ -43,9 +71,60 @@
         owner: ubuntu
         group: ubuntu
         mode: '0755'
-    - name: Clone a repo with separate git directory
+    - name: Ensure git repo is cloned
       ansible.builtin.git:
         repo: https://github.com/chris-t-fernando/jripper.git
         dest: /triplej
         separate_git_dir: /home/ubuntu/jripper.git
-     
+    - name: ensure www/stage0 folder exists
+      ansible.builtin.file:
+        path: /triplej/www/stage0
+        state: directory
+    - name: ensure www/stage1 folder exists
+      ansible.builtin.file:
+        path: /triplej/www/stage1
+        state: directory
+    - name: ensure www/stage2 folder exists
+      ansible.builtin.file:
+        path: /triplej/www/stage2
+        state: directory
+    - name: ensure www/stage3 folder exists
+      ansible.builtin.file:
+        path: /triplej/www/stage3
+        state: directory
+    
+    # SETUP CRON JOBS
+    - name: ensure processed stage3 files are moved to s3
+      ansible.builtin.cron:
+        name: ensure processed stage3 files are moved to s3
+        minute: "0"
+        hour: "23"
+        job: "aws s3 mv /triplej/www/stage3/ s3://j-diamonds-ro-lt/ --include \"*\" --recursive"
+    - name: "ensure unprocessed stage2 files are sync'd to s3"
+      ansible.builtin.cron:
+        name: ensure unprocessed stage2 files are sync'd to s3
+        minute: "30"
+        hour: "22"
+        weekday: "1,7"
+        job: "aws s3 sync /triplej/www/stage1/ s3://j-diamonds-ro-lt/raw --include \"*\" --exclude \"*.spectrum\""
+    - name: "ensure jplays tweet copy job is enabled"
+      ansible.builtin.cron:
+        name: ensure jplays tweet copy job is enabled
+        minute: "22"
+        hour: "11"
+        weekday: "1"
+        job: "python2 /projects/jplaystweets/getjplays.py"
+    - name: "ensure streamripper job is enabled"
+      ansible.builtin.cron:
+        name: ensure streamripper job is enabled
+        minute: "55"
+        hour: "19"
+        weekday: "1"
+        job: "/triplej/streamripper.sh \"Catch all\" \"Catch all\""
+    - name: "check in on ASX:AVH"
+      ansible.builtin.cron:
+        name: check in on ASX:AVH
+        minute: "0"
+        hour: "9"
+        weekday: "1,2,3,4,5"
+        job: "python2 /projects/asx/avh.py"
