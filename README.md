@@ -17,3 +17,15 @@ Build JRipper project using Terraform and Ansible
     - loss of visibility
     - harder to debug
     - longer to execute/harder to step through
+
+## todo
+1. Accelerated execution
+    - It's slow because each task is a new ssh login
+    - Can't use pipelining because the play requires privilege escalation
+    - Couldn't work out multiplexing - config file was set but ansible-config dump ignored it, even though ansible-config view showed my configuration settings
+    - In a real-world environment, forking would probably deal with it, depending on the ansible server's dimensions.  Guess 5 minute execution per box isn't that bad, but seems crazy noisy/wasteful
+
+## Good reading
+https://max.engineer/six-ansible-practices
+https://www.digitalocean.com/community/tutorials/how-to-use-ansible-to-install-and-set-up-apache-on-ubuntu-18-04
+https://alex.dzyoba.com/blog/terraform-ansible/
