@@ -26,6 +26,6 @@ Build JRipper project using Terraform and Ansible
     - In a real-world environment, forking would probably deal with it, depending on the ansible server's dimensions.  Guess 5 minute execution per box isn't that bad, but seems crazy noisy/wasteful
 
 ## Good reading
-https://max.engineer/six-ansible-practices
-https://www.digitalocean.com/community/tutorials/how-to-use-ansible-to-install-and-set-up-apache-on-ubuntu-18-04
-https://alex.dzyoba.com/blog/terraform-ansible/
+1. https://max.engineer/six-ansible-practices
+1. https://www.digitalocean.com/community/tutorials/how-to-use-ansible-to-install-and-set-up-apache-on-ubuntu-18-04
+1. https://alex.dzyoba.com/blog/terraform-ansible/
