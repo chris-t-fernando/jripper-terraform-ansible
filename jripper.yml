@@ -1,13 +1,22 @@
 ---
 - name: Ensure jripper stuff is installed
+# good reading along the way:
+# https://max.engineer/six-ansible-practices
+# https://www.digitalocean.com/community/tutorials/how-to-use-ansible-to-install-and-set-up-apache-on-ubuntu-18-04
+# https://alex.dzyoba.com/blog/terraform-ansible/
 # hacky as hell - unless I write a sed command in main.tf to set hosts: in this yaml
 # file to the IP address of the newly created EC2 instance, I need to set
 # this to Hosts: all and then use the limit block below to specify execution
 # as a way of making sure an admin doesn't deploy this to the entire fleet
 # on second thought
 # the sed option is probably better for this use case....
-  hosts: 34.211.28.128
+  hosts: ##PLACEHOLDER##
   gather_facts: no
+  vars:
+    - http_port: "80"
+    - document_root: "/triplej/www"
+    - http_host: "j.diamonds.ro.lt"
+
   tasks:
     # apt cache update and then get packages
     - name: ensure jripper packages are installed via apt
@@ -28,49 +37,58 @@
         state: present
         update_cache: yes
     
-    # DO PIP STUFF    
-    # need python 2.7 because that's what my app was written in - todo: lifecycle the script to python3
-    - name: pip - ensure latest get-pip.py for python 2.7
-      ansible.builtin.uri:
-        url: https://bootstrap.pypa.io/pip/2.7/get-pip.py
-        dest: get-pip.py
-        # 304 because it can be cached and Ansible throws an error for 304 unless you tell it otherwise.. makes sense through a certain light, if you squint.......
-        status_code: [ "200", "304" ]
-      #command: "curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py"
-    - name: pip - run get-pip.py
-      command: "python2 get-pip.py"
-    - name: pip - install tweepy
-      ansible.builtin.pip:
-        executable: "pip2"
-        name: tweepy
-    - name: pip - install boto3
-      ansible.builtin.pip:
-        executable: "pip2"
-        name: boto3
+    # SET GUID STICKY BIT FOR NEWLY CREATED RIPS
+    # apache runs as its own user who is not a member of a group that has access to /triplej
+    # create a new group
+    # add both ubuntu and apache users into it
+    # set ownership of the directory to the new grou
+    # set the guid sticky bit on that directory so all new files and folders inherit from the folder, not the user
+#    - name: Ensure group www-data exists
+#      become: yes
+#      ansible.builtin.group:
+#        name: www-data
+#        state: present
+#    - name: Ensure ubuntu is a member of www-data
+#      become: yes
+#      ansible.builtin.user:
+#        name: ubuntu
+#        groups: www-data
     
     # DO PHP CONFIG
     - name: ensure PHP CLI config allows short tags
-      command: "sudo sed -i 's/short_open_tag = Off/short_open_tag = On/g' /etc/php/7.4/cli/php.ini"
       become: yes
+      lineinfile:
+        path: /etc/php/7.4/cli/php.ini
+        search_string: 'short_open_tag = Off'
+        line: short_open_tag = On
     - name: ensure PHP apache config allows short tags
-      command: "sudo sed -i 's/short_open_tag = Off/short_open_tag = On/g' /etc/php/7.4/apache2/php.ini"
       become: yes
+      lineinfile:
+        path: /etc/php/7.4/apache2/php.ini
+        search_string: 'short_open_tag = Off'
+        line: short_open_tag = On
     - name: ensure PHP CLI config shows errors
-      command: "sudo sed -i 's/display_errors = Off/display_errors = On);/g' /etc/php/7.4/cli/php.ini"
       become: yes
+      lineinfile:
+        path: /etc/php/7.4/cli/php.ini
+        search_string: 'display_errors = Off'
+        line: display_errors = On
     - name: ensure PHP apache config shows errors
-      command: "sudo sed -i 's/display_errors = Off/display_errors = On);/g' /etc/php/7.4/apache2/php.ini"
       become: yes
+      lineinfile:
+        path: /etc/php/7.4/apache2/php.ini
+        search_string: 'display_errors = Off'
+        line: display_errors = On
     
-    # CREATE FOLDERS todo: add folders into git repo so that this isn't required
+    # CREATE FOLDERS AND GET GIT REPO todo: add folders into git repo so that this isn't required
     - name: ensure /triplej folder exists
       become: yes
       ansible.builtin.file:
         path: /triplej
         state: directory
         owner: ubuntu
-        group: ubuntu
-        mode: '0755'
+        group: www-data
+        mode: u+rwx,g+rwxs,o+r-wx
     - name: Ensure git repo is cloned
       ansible.builtin.git:
         repo: https://github.com/chris-t-fernando/jripper.git
@@ -93,6 +111,32 @@
         path: /triplej/www/stage3
         state: directory
     
+    # DO PIP STUFF    
+    # need python 2.7 because that's what my app was written in - todo: lifecycle the script to python3
+    - name: pip - ensure latest get-pip.py for python 2.7
+      register: urihandler_return
+      ansible.builtin.uri:
+        url: https://bootstrap.pypa.io/pip/2.7/get-pip.py
+        dest: /triplej/get-pip.py
+        # 304 because it can be cached and Ansible throws an error for 304 unless you tell it otherwise.. makes sense through a certain light, if you squint.......
+        status_code: [ "200", "304" ]
+      # this is important to me - learned a lot about debugging
+      changed_when: "urihandler_return.status == 200 or urihandler_return.status == 301"
+    # returns 'changed' because of the warning about using old Python - use the changed_when to focus only on success message
+    - name: pip - run get-pip.py
+      become: yes
+      command: "python2 /triplej/get-pip.py --no-warn-script-location"
+      register: getpip_return
+      changed_when: "'Successfully installed pip-' not in getpip_return.stdout"
+    - name: pip - install tweepy
+      ansible.builtin.pip:
+        executable: "pip2"
+        name: tweepy
+    - name: pip - install boto3
+      ansible.builtin.pip:
+        executable: "pip2"
+        name: boto3
+
     # SETUP CRON JOBS
     - name: ensure processed stage3 files are moved to s3
       ansible.builtin.cron:
@@ -121,10 +165,38 @@
         hour: "19"
         weekday: "1"
         job: "/triplej/streamripper.sh \"Catch all\" \"Catch all\""
-    - name: "check in on ASX:AVH"
+    - name: "ensure ASX:AXH check is on"
       ansible.builtin.cron:
         name: check in on ASX:AVH
         minute: "0"
         hour: "9"
         weekday: "1,2,3,4,5"
         job: "python2 /projects/asx/avh.py"
+
+    # SET UP APACHE VIRTUAL HOST
+    # this is nifty - template evaluates the variables in config files
+    - name: "ensure apache virtual host is configured"
+      become: yes
+      template:
+        src: "vhost-template.conf"
+        dest: /etc/apache2/sites-available/{{ http_host }}.conf
+    - name: Disable default Apache site
+      shell: /usr/sbin/a2dissite 000-default.conf
+      become: yes
+      register: disabledefault_return
+      changed_when: "'already disabled' not in disabledefault_return.stdout and 'To activate the new configuration, you need to run:' not in disabledefault_return.stdout"
+    - name: Disable default Apache SSL site
+      shell: /usr/sbin/a2dissite default-ssl.conf
+      become: yes
+      register: disablessl_return
+      changed_when: "'already disabled' not in disablessl_return.stdout and 'To activate the new configuration, you need to run:' not in disablessl_return.stdout"
+    - name: ensure apache virtual host is enabled
+      shell: /usr/sbin/a2ensite {{ http_host }}.conf
+      become: yes
+      register: enablejripper_return
+      changed_when: "'already enabled' not in enablejripper_return.stdout and 'To activate the new configuration, you need to run:' not in enablejripper_return.stdout"
+    - name: restart apache
+      become: yes
+      service:
+        name: apache2
+        state: restarted
