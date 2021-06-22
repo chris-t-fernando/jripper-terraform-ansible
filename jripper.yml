@@ -36,7 +36,18 @@
           - python2
         state: present
         update_cache: yes
-    
+
+    # SET THE TIMEZONE
+    - name: ensure the timezone is Australia Melbourne
+      become: yes
+      timezone:
+        name: Australia/Melbourne
+    - name: ensure cron has the correct timezone
+      become: yes
+      service:
+        name: cron
+        state: restarted
+
     # SET GUID STICKY BIT FOR NEWLY CREATED RIPS
     # apache runs as its own user who is not a member of a group that has access to /triplej
     # create a new group
